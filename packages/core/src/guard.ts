@@ -512,11 +512,16 @@ export class LeakGuard {
   }
 
   /** Reasons the text must not be sent (empty = clean). */
-  check(text: string, o: { exceptOwner?: string } = {}): string[] {
+  check(text: string, o: { exceptOwner?: string; exceptOwners?: Iterable<string | undefined> } = {}): string[] {
     if (text.length > this.maxLength) return ["too_long"];
     const reasons = new Set<string>();
     if (BIDI.test(text)) reasons.add("format:bidi");
-    const counts = (e: Entry) => [...e.owners].some(x => x === undefined || x !== o.exceptOwner);
+    const exempt = o.exceptOwners !== undefined ? new Set(o.exceptOwners) : o.exceptOwner !== undefined ? new Set([o.exceptOwner]) : undefined;
+    const counts = (e: Entry) => {
+      if (e.owners.has(undefined)) return true;
+      if (!exempt) return true;
+      return ![...e.owners].some(x => x !== undefined && exempt.has(x));
+    };
     const hit = (e: Entry | undefined) => { if (e && counts(e)) reasons.add(e.label); };
     const plains = plainVariants(text);
     const folded = foldedVariants(text);
@@ -583,7 +588,7 @@ export class LeakGuard {
    * Check the last messages of one thread to the same recipient as one text (core-14): a number or a
    * fact split across messages ("212 555", "0102") is caught. Pass the new message last.
    */
-  checkThread(texts: readonly string[], o: { exceptOwner?: string } = {}): string[] {
+  checkThread(texts: readonly string[], o: { exceptOwner?: string; exceptOwners?: Iterable<string | undefined> } = {}): string[] {
     const recent = texts.slice(-5);
     return [...new Set([...this.check(recent.at(-1) ?? "", o), ...this.check(recent.join(" "), o), ...this.check(recent.join(""), o)])];
   }
@@ -595,6 +600,6 @@ function add(m: Map<string, Entry>, key: string, label: string, owner: string | 
 }
 
 /** One-off check. For many messages against the same lists, build a `LeakGuard` once instead. */
-export function findLeaks(text: string, o: LeakOptions = {}): string[] {
-  return new LeakGuard(o).check(text);
+export function findLeaks(text: string, o: LeakGuardOptions & { exceptOwner?: string; exceptOwners?: Iterable<string | undefined> } = {}): string[] {
+  return new LeakGuard(o).check(text, o);
 }
