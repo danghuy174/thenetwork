@@ -23,7 +23,7 @@ import { findLeaks } from "../../packages/core/src/index.ts";
 import { appearanceLeak } from "../../packages/engine/src/packs/slop/appearance.ts";
 import { SLOP_PROBE_PHOTO_LINE, slopProbeMessage, slopProbeText } from "../../packages/engine/src/packs/slop/copy.ts";
 import { probePhotoRefs } from "../../packages/engine/src/packs/slop/plan.ts";
-import { parseRelayRequest, pastContacts, relayGuard, relayItem, relayItemAsync, relayItemFromRequest, RELAY_WORDING, threadMessage, type RelayContext, type RelayItem, type RelayRecord } from "../../packages/engine/src/relay.ts";
+import { classifyRelayText, parseRelayRequest, pastContacts, relayGuard, relayItem, relayItemAsync, relayItemFromRequest, RELAY_WORDING, threadMessage, type RelayContext, type RelayItem, type RelayRecord } from "../../packages/engine/src/relay.ts";
 import { clefRelayClassifier, DEFAULT_RELAY_CLEF_WEIGHTS, directRelayClefWeights, loadRelayClefWeights, RELAY_CLEF_QUESTIONS, type RelayClefEvent } from "../../packages/engine/src/relayClef.ts";
 import { scoreArm, type ArmRow, reasonCategories } from "../../packages/engine/src/relayClefFit.ts";
 import type { ClefFetch } from "../../packages/engine/src/packs/slop/clef.ts";
@@ -510,6 +510,14 @@ async function deskGates(b: Block): Promise<void> {
     const off = await d3.request({ itemId: "p2", from: "a", kind: "photo", photoIds: ["ph_abcdefgh"] }, { photos: { ids: ["ph_abcdefgh"], showConsent: false } });
     expect(off).toMatchObject({ decision: "refused", reason: "I can't send photos to a match yet." });
     expect(h3.sent).toEqual([]);
+
+    // Minor signal catches and duration exclusion non-catches
+    for (const text of ["im 12 is that ok", "i am 10 years old", "11 yo", "im 9"]) {
+      expect(classifyRelayText(text).minorSignal).toBe(true);
+    }
+    for (const text of ["i'm 3 years into my PhD", "i'm 2 months into my new job", "i'm 5 years older than you", "i'm 12 years in finance", "i'm 5 minutes away"]) {
+      expect(classifyRelayText(text).minorSignal).toBe(false);
+    }
   });
 
   await b.run("relay desk: appearance and rating talk never passes on an app that rates photos", async () => {
