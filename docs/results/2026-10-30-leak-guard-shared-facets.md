@@ -49,6 +49,17 @@ In relayed communications, `ConsentNetwork.guardCheck` called `guard.check` sepa
      - Meanwhile, agent messages regarding `b`'s own situation (`"Take your time, going through a divorce..."`) match `b`'s context tokens and pass cleanly.
      - Verified with row 137 in `evals/guard/leaks.jsonl` (now n 137).
 
+4c. **Subject guard against third-party disclosure using owner context (Review #4):**
+   - As noted by @Maliot100X in review #4, context token presence alone does not prevent a message that names a third party (e.g. `"another member is going through a divorce"`) from claiming the exempt owner's context tokens (`going`, `through`).
+   - In `checkSensitive`:
+     ```typescript
+     const mentionsThirdParty = /\b(another|someone|somebody|other members?)\b/i.test(folded.join(" "));
+     if (hasExemptContext && !mentionsThirdParty) return;
+     ```
+   - When a third party is mentioned, the group exemption is suppressed so non-exempt member `a`'s fact flags the disclosure.
+   - Clean messages directed to the exempt owner (e.g. `"Take your time, going through a divorce can be overwhelming."`) do not name a third party and remain clean.
+   - Verified with 4 regression rows added to `evals/guard/leaks.jsonl` (rows 138-141, now n 141).
+
 5. **Type compatibility of `LeakGuardOptions` and `findLeaks`:**
    - `LeakGuardOptions` is an exported type in `packages/core/src/guard.ts:405`:
      ```typescript

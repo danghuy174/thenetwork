@@ -543,6 +543,7 @@ export class LeakGuard {
     const textToks = new Set(folded.flatMap(tokens).filter(isContent));
     const checkSensitive = (list: SensitiveEntry[] | undefined) => {
       if (!list?.length) return;
+      const mentionsThirdParty = /\b(another|someone|somebody|other members?)\b/i.test(folded.join(" "));
       let hasExemptContext = false;
       for (const e of list) {
         if (exempt && e.owner !== undefined && exempt.has(e.owner)) {
@@ -552,11 +553,10 @@ export class LeakGuard {
           }
         }
       }
-      if (!hasExemptContext) {
-        for (const e of list) {
-          if (!exempt || e.owner === undefined || !exempt.has(e.owner)) {
-            reasons.add(e.label);
-          }
+      if (hasExemptContext && !mentionsThirdParty) return;
+      for (const e of list) {
+        if (!exempt || e.owner === undefined || !exempt.has(e.owner)) {
+          reasons.add(e.label);
         }
       }
     };
