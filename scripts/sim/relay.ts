@@ -375,6 +375,7 @@ function fakeHost(over: { ratesPhotos?: boolean; members?: Partial<Record<"a" | 
     blocked: () => false,
     privateFacts: () => ({ forbidden: [{ text: "Halcyon Biotech", owner: "b" }], canaries: [] }),
     send: (to, body, o) => { h.sent.push({ to, body, key: o.key, ...(o.contact ? { contact: o.contact } : {}) }); return "sent"; },
+    onAgeSignal: id => { const m = members.get(id); if (m) m.age = undefined; },
   };
   return h;
 }
@@ -492,13 +493,23 @@ async function deskGates(b: Block): Promise<void> {
     expect(t.decision).toBe("refused");
     expect(h.sent).toEqual([]);
     const h2 = fakeHost(), d2 = new RelayDesk(h2);
-    const said = await d2.request({ itemId: "t2", from: "a", kind: "text", text: "im 16 is that ok" });
+    const under13 = await d2.request({ itemId: "t12", from: "a", kind: "text", text: "im 12 is that ok" });
+    expect(under13.decision).toBe("refused");
+    expect(d2.records().at(-1)!.ageSignal).toBe(true);
+    expect(h2.member("a")?.age).toBeUndefined();
+    const after12 = await d2.request({ itemId: "t13", from: "a", kind: "text", text: "hello" });
+    expect(after12.decision).toBe("refused");
+    const h3 = fakeHost(), d3 = new RelayDesk(h3);
+    const said = await d3.request({ itemId: "t2", from: "a", kind: "text", text: "im 16 is that ok" });
     expect(said.decision).toBe("refused");
-    expect(d2.held()).toEqual([]);
-    expect(d2.records()[0]!.ageSignal).toBe(true);
-    const off = await d2.request({ itemId: "p2", from: "a", kind: "photo", photoIds: ["ph_abcdefgh"] }, { photos: { ids: ["ph_abcdefgh"], showConsent: false } });
+    expect(d3.held()).toEqual([]);
+    expect(d3.records().at(-1)!.ageSignal).toBe(true);
+    expect(h3.member("a")?.age).toBeUndefined();
+    const after16 = await d3.request({ itemId: "t3", from: "a", kind: "text", text: "hello" });
+    expect(after16.decision).toBe("refused");
+    const off = await d3.request({ itemId: "p2", from: "a", kind: "photo", photoIds: ["ph_abcdefgh"] }, { photos: { ids: ["ph_abcdefgh"], showConsent: false } });
     expect(off).toMatchObject({ decision: "refused", reason: "I can't send photos to a match yet." });
-    expect(h2.sent).toEqual([]);
+    expect(h3.sent).toEqual([]);
   });
 
   await b.run("relay desk: appearance and rating talk never passes on an app that rates photos", async () => {
