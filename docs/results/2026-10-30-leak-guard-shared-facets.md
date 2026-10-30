@@ -33,6 +33,29 @@ In relayed communications, `ConsentNetwork.guardCheck` called `guard.check` sepa
      - If third member `c` has a specific unique phrase, n-gram, or multi-word fact (e.g. `"going through a divorce with Bob"`), that specific phrase entry has `e.owners = Set(["c"])`. Since neither `alsoOwner` nor `recipient` is in `Set(["c"])`, `counts(e)` evaluates to `true` and the message is blocked/held;
      - Any unowned canary or global forbidden string has `owner: undefined`, so `e.owners.has(undefined)` returns `true` unconditionally regardless of any exempted owners.
 
+4. **Why agent-written messages (direct messages to members) are safe:**
+   - When an AI agent writes directly to a recipient (passing `exceptOwner: recipient`):
+     - If recipient `b` and third member `a` share a sensitive stem (like `"divorce"`), `counts(e)` allows the agent to talk to `b` about `b`'s own situation (e.g. `"Take your time, going through a divorce can be overwhelming."` -> `clean`).
+     - If the agent attempts to disclose third member `a`'s sensitive fact to recipient `b` (e.g. `"Another member was divorced in 2021"`), the multi-word n-gram or exact phrase entry for `a`'s fact has `e.owners = Set(["a"])`.
+     - Because `exempt = Set(["b"])` does not contain `"a"`, `counts(e)` returns `true` and the message is blocked (`want: "leak"`).
+     - Regression rows covering both directions for agent-written messages are appended in `evals/guard/leaks.jsonl` (rows 135-136, bringing total corpus to n 136).
+
+5. **Type compatibility of `LeakGuardOptions` and `findLeaks`:**
+   - `LeakGuardOptions` is an exported type in `packages/core/src/guard.ts:405`:
+     ```typescript
+     export type LeakGuardOptions =
+       Omit<LeakOptions, "forbidden" | "facts" | "exact"> & { forbidden?: Owned[]; facts?: Owned[]; exact?: Owned[] };
+     ```
+   - Because `Owned = string | { text: string; owner?: string; ... }`, `LeakGuardOptions` is a superset of `LeakOptions`.
+   - Callers passing ordinary `LeakOptions` (where `forbidden`, `facts`, and `exact` are strings) remain fully compatible, while callers passing `Owned` entries with `owner` attributes can now specify `exceptOwner` or `exceptOwners`.
+
+6. **Explanation of integration and e2e test failures on Windows:**
+   - The 10 integration test failures and 2 e2e failures are pre-existing issues on Windows checkouts, identical on `main`:
+     - 2 e2e and 3 integration failures: `null is not an object (evaluating 'parsed.description')` in `sites/src/build.ts` due to Windows CRLF line endings in `sites/skills/*/SKILL.md` (tracked by open PR #177: `fix(sites): build skills from CRLF Windows checkouts`).
+     - 4 integration failures: Drift in upstream contract mirror fixtures (`packages/network/test/contracts.test.ts`).
+     - 3 integration failures: Cloudflare worker / wrangler local execution environment requirements (`deploy/cloudflare/test/*`).
+   - Zero failures occur in `@network/core` or `LeakGuard`.
+
 ## Reproduction and verification
 
 Base: `2b3ad75` on branch `fix/leak-guard-shared-facet-relay`.
@@ -49,11 +72,11 @@ bun run test:e2e
 
 ### Before fix (with regression assertions in `scripts/sim/relay.ts`, `scripts/sim/evals.ts`, and `evals/guard/leaks.jsonl`):
 - `bun run sim --only relay`: `FAIL [relay] relay: private facts, canaries, ratings and scores never pass; the sender's own words about themselves do: expected "hold" to be "pass"` (59/60 blocking gates pass).
-- `bun run sim --only evals`: `FAIL [evals] leak guard (n 134): evasions caught, benign text clean: clean: "full disclosure, I was divorced in 2021" (shared sensitive term allowed for owner)` (24/25 blocking gates pass).
+- `bun run sim --only evals`: `FAIL [evals] leak guard: evasions caught, benign text clean: clean: "full disclosure, I was divorced in 2021" (shared sensitive term allowed for owner)`.
 
 ### After fix:
 - `bun run sim --only relay`: `PASS: 60/60 blocking gates pass, 4 tracked off target (0.7s)`.
-- `bun run sim --only evals`: `PASS: 25/25 blocking gates pass, 0 tracked off target (0.3s)`.
+- `bun run sim --only evals`: `PASS: 25/25 blocking gates pass, 0 tracked off target (0.4s)`.
 - `bun run sim --only audit`: `PASS: 16/16 blocking gates pass (55.3s)`.
 - `bun run sim`: `PASS: 327/327 blocking gates, 15 tracked off target, 363.4s` (all gates in evals, onboard, network, slop, relay, peon, peon-seats, friends, clef, safety, ops, pipeline, audit pass).
 - `bun run typecheck`: exit code 0.
