@@ -38,7 +38,16 @@ In relayed communications, `ConsentNetwork.guardCheck` called `guard.check` sepa
      - If recipient `b` and third member `a` share a sensitive stem (like `"divorce"`), `counts(e)` allows the agent to talk to `b` about `b`'s own situation (e.g. `"Take your time, going through a divorce can be overwhelming."` -> `clean`).
      - If the agent attempts to disclose third member `a`'s sensitive fact to recipient `b` (e.g. `"Another member was divorced in 2021"`), the multi-word n-gram or exact phrase entry for `a`'s fact has `e.owners = Set(["a"])`.
      - Because `exempt = Set(["b"])` does not contain `"a"`, `counts(e)` returns `true` and the message is blocked (`want: "leak"`).
-     - Regression rows covering both directions for agent-written messages are appended in `evals/guard/leaks.jsonl` (rows 135-136, bringing total corpus to n 136).
+     - Regression rows covering both directions for agent-written messages are appended in `evals/guard/leaks.jsonl` (rows 135-136).
+
+4b. **Context-aware exemption for shared sensitive terms (Review #3):**
+   - Per review feedback from @Maliot100X, when recipient `b` shares a sensitive term with non-exempt member `a`, a paraphrased disclosure carrying only the sensitive stem (e.g., `"another member is divorcing"`) must not be exempted by `b`'s membership on that stem.
+   - To resolve this:
+     - `LeakGuard` stores `contextTokens: Set<string>` alongside each `SensitiveEntry` (all content tokens of that fact excluding the sensitive term itself).
+     - In `check()`, an exempt owner `u` (such as `b`) only provides an exemption for the sensitive term if the incoming text also matches `u`'s own context tokens (`e.contextTokens.size === 0 || [...e.contextTokens].some(t => textToks.has(t))`).
+     - If the text contains only the bare sensitive stem or another member's context (e.g. `"another member is divorcing"` or `"Another member was divorced in 2021"`), `b`'s exemption does not apply (`hasExemptContext = false`). Consequently, non-exempt member `a`'s entry flags it as a leak (`reasons.add(a.label)`).
+     - Meanwhile, agent messages regarding `b`'s own situation (`"Take your time, going through a divorce..."`) match `b`'s context tokens and pass cleanly.
+     - Verified with row 137 in `evals/guard/leaks.jsonl` (now n 137).
 
 5. **Type compatibility of `LeakGuardOptions` and `findLeaks`:**
    - `LeakGuardOptions` is an exported type in `packages/core/src/guard.ts:405`:
