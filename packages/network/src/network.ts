@@ -3827,6 +3827,7 @@ export class ConsentNetwork implements NetworkUnderTest {
       const mine = known.get(m.id);
       if (!mine) continue;
       const host = [...this.members.values()].filter(x => x.id !== m.id && x.id !== m.invitedBy && x.state !== "receiving" && this.eligible(x.id) && x.noShows === 0 && now - x.joinedAt > 7 * DAY
+        && !this.blocked(m.id, x.id) && !this.avoid.has(pairKey(m.id, x.id)) && !this.pairHistory(m.id, x.id, 60)
         && (this.minutesBetween(m.area, x.area) ?? Infinity) <= 30 && [...(known.get(x.id)?.interests ?? [])].some(t => mine.interests.has(t)))
         .sort((a, b) => this.minutesBetween(m.area, a.area)! - this.minutesBetween(m.area, b.area)! || seededTie(this.opts.seed, m.id, a.id) - seededTie(this.opts.seed, m.id, b.id))[0];
       if (!host) continue;
@@ -3967,7 +3968,7 @@ export class ConsentNetwork implements NetworkUnderTest {
       // whoever proposed it (search, engine, planner, player or scenario).
       const am = this.members.get(a);
       if (!am || am.minor || am.minorSignal) continue;
-      if (participants.includes(a) || [...participants, ...out].some(p => this.blocked(p, a))) continue;
+      if (participants.includes(a) || [...participants, ...out].some(p => this.blocked(p, a) || this.avoid.has(pairKey(p, a)))) continue;
       const f = this.members.get(a)?.first.toLowerCase();
       if (f && firsts.has(f)) continue;
       if (f) firsts.add(f);
@@ -4227,7 +4228,7 @@ export class ConsentNetwork implements NetworkUnderTest {
       if (!this.trust.ok(id)) return no("on_watch");
       for (const x of o.about ?? []) {
         if (x === id) continue;
-        if (this.blocked(id, x)) return no("blocked_pair");
+        if (this.blocked(id, x) || this.avoid.has(pairKey(id, x))) return no("blocked_pair");
         const other = this.members.get(x);
         if (other) this.syncRecord(other);
         if (!other || other.minor || other.account || this.declinedIds.has(x)) return no("other_not_matchable");
