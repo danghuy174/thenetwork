@@ -69,8 +69,6 @@ describe("plan fallback partner consent and pair constraints", () => {
 
     const now = w.clock.now();
     const netAny = w.net as any;
-    // Record an avoid relationship between a and b
-    netAny.avoid.add(pairKey("a", "b"));
 
     const plan = {
       id: "plan_test_avoid", city: "nyc" as const, activityId: "bouldering",
@@ -83,6 +81,9 @@ describe("plan fallback partner consent and pair constraints", () => {
     };
     netAny.submitPlan(plan, now);
     const opp = [...netAny.opps.values()].find((o: any) => o.plan?.id === "plan_test_avoid")!;
+
+    // Record an avoid relationship between a and b after plan started
+    netAny.avoid.add(pairKey("a", "b"));
 
     opp.status.set("a", "yes");
     opp.status.set("b", "yes");
@@ -176,4 +177,35 @@ describe("plan fallback partner consent and pair constraints", () => {
       }
     }
   });
+
+  test("distinctAlternates filters out alternates who have an avoid edge or recent history with participants", async () => {
+    const w = new Mini([climber("a", "Ana Diaz"), climber("b", "Ben Ito"), climber("c", "Cy Moss"), climber("d", "Dee Park")], { review: "auto" });
+    await w.onboard("a", "b", "c", "d");
+
+    const netAny = w.net as any;
+    // Record avoid edge between participant a and alternate c
+    netAny.avoid.add(pairKey("a", "c"));
+
+    const distinct = netAny.distinctAlternates(["a", "b"], ["c", "d"]);
+    // c should be excluded because of avoid edge with a
+    expect(distinct).toEqual(["d"]);
+  });
+
+  test("approvalCheck invalidates opportunity review if participants have an avoid relationship", async () => {
+    const w = new Mini([climber("a", "Ana Diaz"), climber("b", "Ben Ito")], { review: "auto" });
+    await w.onboard("a", "b");
+
+    const netAny = w.net as any;
+    // Record avoid edge between a and b
+    netAny.avoid.add(pairKey("a", "b"));
+
+    const o = netAny.newOpp({
+      origin: "player", kind: "intro", category: "social", objective: "climb", detail: "climbing",
+      participants: ["a", "b"], alternates: [], primed: [], explanations: {}, score: 0.8, generator: "player", tags: [],
+    });
+
+    const check = netAny.approvalCheck(o);
+    expect(check).toBe("pair_history");
+  });
 });
+

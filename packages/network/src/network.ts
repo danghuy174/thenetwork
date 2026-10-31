@@ -1995,8 +1995,10 @@ export class ConsentNetwork implements NetworkUnderTest {
       if (m.minor) return "participant_minor";
       if (this.busy(id, o.id)) return "busy_elsewhere";
     }
-    for (let i = 0; i < o.participants.length; i++) for (let j = i + 1; j < o.participants.length; j++)
+    for (let i = 0; i < o.participants.length; i++) for (let j = i + 1; j < o.participants.length; j++) {
       if (this.blocked(o.participants[i]!, o.participants[j]!)) return "blocked_pair";
+      if (this.avoid.has(pairKey(o.participants[i]!, o.participants[j]!))) return "pair_history";
+    }
     if (o.origin === "engine") return this.gateReason({ ...this.toProposal(o), roles: o.roles ?? {}, anchor: o.anchor, ...(o.seat ? { seat: o.seat } : {}) } as SeatProposal, o.id);
     return undefined;
   }
@@ -3981,7 +3983,7 @@ export class ConsentNetwork implements NetworkUnderTest {
       // whoever proposed it (search, engine, planner, player or scenario).
       const am = this.members.get(a);
       if (!am || am.minor || am.minorSignal) continue;
-      if (participants.includes(a) || [...participants, ...out].some(p => this.blocked(p, a))) continue;
+      if (participants.includes(a) || [...participants, ...out].some(p => this.blocked(p, a) || this.avoid.has(pairKey(p, a)) || this.pairHistory(p, a, 60))) continue;
       const f = this.members.get(a)?.first.toLowerCase();
       if (f && firsts.has(f)) continue;
       if (f) firsts.add(f);
