@@ -1990,6 +1990,7 @@ export class ConsentNetwork implements NetworkUnderTest {
       const m = this.members.get(id);
       if (!m) return "unknown_member";
       if (m.optedOut) return "opted_out";
+      if (m.account) return `account_${m.account}`;
       const level = this.trust.level(id);
       if (level !== "ok") return level === "hold" ? "held" : "on_watch";
       if (m.minor) return "participant_minor";
@@ -1997,8 +1998,25 @@ export class ConsentNetwork implements NetworkUnderTest {
     }
     for (let i = 0; i < o.participants.length; i++) for (let j = i + 1; j < o.participants.length; j++)
       if (this.blocked(o.participants[i]!, o.participants[j]!)) return "blocked_pair";
+    if (o.category === "romance") {
+      const why = this.romanceGate(o.participants);
+      if (why) return why;
+    }
     if (o.origin === "engine") return this.gateReason({ ...this.toProposal(o), roles: o.roles ?? {}, anchor: o.anchor, ...(o.seat ? { seat: o.seat } : {}) } as SeatProposal, o.id);
     return undefined;
+  }
+
+  /** An alternate candidate may step in for an opportunity: eligible, active, name distinct, no blocks/avoid/history, category-opted-in, and romance-compatible if romance. */
+  private altOk(o: Opp, a: MemberId, stay: MemberId[]): boolean {
+    const ma = this.members.get(a);
+    if (!ma || ma.state === "paused" || !this.eligible(a) || this.sharesFirstName(o, a)) return false;
+    if (stay.some(p => this.blocked(p, a) || this.avoid.has(pairKey(p, a)) || this.pairHistory(p, a, 60))) return false;
+    const r = this.record(a);
+    if (r?.prefs?.categoriesOptIn && !r.prefs.categoriesOptIn.includes(o.category)) return false;
+    if (o.category === "romance") {
+      if (stay.length !== 1 || this.romanceGate([stay[0]!, a]) !== undefined) return false;
+    }
+    return true;
   }
 
   /**
@@ -2014,7 +2032,7 @@ export class ConsentNetwork implements NetworkUnderTest {
     const out = opts.swapOut ?? (swappable.length === 1 ? swappable[0] : undefined);
     if (out !== undefined && !swappable.includes(out)) { this.ctx.log("review_refused", { oppId: o.id, decision: "reroll", reason: "cannot_swap" }); return { ok: false, reason: "cannot_swap" }; }
     const stay = o.participants.filter(p => p !== out);
-    const alt = out === undefined ? undefined : o.alternates.find(a => this.eligible(a) && !this.sharesFirstName(o, a) && !stay.some(p => this.blocked(p, a) || this.avoid.has(pairKey(p, a)) || this.pairHistory(p, a, 60)));
+    const alt = out === undefined ? undefined : o.alternates.find(a => this.altOk(o, a, stay));
     this.counters.reviewRerolled++;
     o.review!.rerolls = [...(o.review!.rerolls ?? []), { at: now, out, in: alt, reviewer, note: opts.note }];
     this.ctx.log("review_decision", { ...logged, decision: "reroll", out: out ?? null, in: alt ?? null, next: alt ? "review" : "engine" });
@@ -2371,11 +2389,12 @@ export class ConsentNetwork implements NetworkUnderTest {
     // A seat item without its hiring manager is over (an alternate candidate never stands in for them).
     if (o.seat?.manager === out) return this.close(o, "manager unavailable");
     const group = o.participants.length > 2;
+    const stay = o.participants.filter(p => p !== out);
     let alt: MemberId | undefined;
     while (!alt && o.alternates.length && o.replacements < 3) {
       const a = o.alternates.shift()!;
-      // The same checks as a reroll: blocks, avoid edges and pair history with everyone staying (network-consent-26).
-      if (this.eligible(a) && !this.sharesFirstName(o, a) && !o.participants.some(p => p !== out && (this.blocked(p, a) || this.avoid.has(pairKey(p, a)) || this.pairHistory(p, a, 60)))) alt = a;
+      // The same checks as a reroll: blocks, avoid edges, pair history with staying participants (network-consent-26), category opt-in and romance gate.
+      if (this.altOk(o, a, stay)) alt = a;
     }
     if (o.picks?.[out]) { const { [out]: _, ...rest } = o.picks; o.picks = rest; }
     if (alt) {
