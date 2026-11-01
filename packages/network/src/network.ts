@@ -1990,6 +1990,7 @@ export class ConsentNetwork implements NetworkUnderTest {
       const m = this.members.get(id);
       if (!m) return "unknown_member";
       if (m.optedOut) return "opted_out";
+      if (m.state === "paused") return "participant_paused";
       const level = this.trust.level(id);
       if (level !== "ok") return level === "hold" ? "held" : "on_watch";
       if (m.minor) return "participant_minor";
@@ -2649,7 +2650,7 @@ export class ConsentNetwork implements NetworkUnderTest {
   private canInvite(m: MemberState) {
     // Vouch capacity (NC), read at invite time; the floor without a capital reader is invitesPerMonth.
     const limit = this.opts.capital ? this.opts.capital.vouchCapacity(m.id, this.now()) : this.opts.invitesPerMonth;
-    return !m.minor && this.trust.ok(m.id) && this.now() >= m.invitesBlockedUntil && m.invites.filter(t => this.now() - t < 30 * DAY).length < limit;
+    return !m.minor && m.state !== "paused" && this.trust.ok(m.id) && this.now() >= m.invitesBlockedUntil && m.invites.filter(t => this.now() - t < 30 * DAY).length < limit;
   }
 
   /**
@@ -2887,7 +2888,7 @@ export class ConsentNetwork implements NetworkUnderTest {
   /** May this member take a seat in a plan now: an active adult, reachable, not on hold, not in another open opportunity. */
   private planSeatOk(m: MemberState, exceptOpp?: string, o: { busyOk?: boolean } = {}): boolean {
     this.syncRecord(m);
-    return !m.minor && !m.account && !m.optedOut && m.stage === "active" && !m.onlyWhenAsked && this.trust.ok(m.id) && validAge(m.age ?? m.statedAge) && (!!o.busyOk || !this.busy(m.id, exceptOpp));
+    return !m.minor && !m.account && !m.optedOut && m.state !== "paused" && m.stage === "active" && !m.onlyWhenAsked && this.trust.ok(m.id) && validAge(m.age ?? m.statedAge) && (!!o.busyOk || !this.busy(m.id, exceptOpp));
   }
 
   /**
@@ -4219,6 +4220,7 @@ export class ConsentNetwork implements NetworkUnderTest {
     if (!m) return no("unknown_member");
     this.syncRecord(m);
     if (m.optedOut) return no("opted_out");
+    if (m.state === "paused" && !o.reply && kind !== "safety") return no("state_paused");
     if (m.account && !o.reply && kind !== "safety") return no(`account_${m.account}`);
     if (!o.reply && kind !== "safety" && this.trust.level(id) === "hold") return no("held");
     if (m.onlyWhenAsked && kind !== "reengage" && (o.proactive || (ASK_KINDS.has(kind) && !o.reply))) return no("only_when_asked");
@@ -4230,7 +4232,7 @@ export class ConsentNetwork implements NetworkUnderTest {
         if (this.blocked(id, x)) return no("blocked_pair");
         const other = this.members.get(x);
         if (other) this.syncRecord(other);
-        if (!other || other.minor || other.account || this.declinedIds.has(x)) return no("other_not_matchable");
+        if (!other || other.minor || other.account || this.declinedIds.has(x) || other.state === "paused") return no("other_not_matchable");
         if (!this.trust.ok(x)) return no("other_on_watch");
       }
     }
@@ -4357,7 +4359,7 @@ export class ConsentNetwork implements NetworkUnderTest {
   eligible(id: MemberId, exceptOpp?: string, asked = false): boolean {
     const m = this.members.get(id);
     if (m) this.syncRecord(m);
-    if (!m || m.minor || m.account || m.optedOut || m.stage === "new" || !this.trust.ok(id) || m.onlyWhenAsked || this.reportHeld(id)) return false;
+    if (!m || m.minor || m.account || m.optedOut || m.stage === "new" || m.state === "paused" || !this.trust.ok(id) || m.onlyWhenAsked || this.reportHeld(id)) return false;
     // Room on the Blooio streak for an interruption (at most 1 message unanswered), or logistics for a requester.
     const c = { outboundSinceInbound: m.outbound ?? 0 };
     if (!(asked ? attention.canSendLogistics(c) : attention.canInterrupt(c))) return false;
@@ -4754,7 +4756,7 @@ export class ConsentNetwork implements NetworkUnderTest {
         const m = this.members.get(id);
         if (!m || this.declinedIds.has(id)) return undefined;
         this.syncRecord(m);
-        return relayMemberOf(m, this.trust.level(id) === "hold");
+        return relayMemberOf(m, this.trust.level(id) === "hold" || m.state === "paused");
       },
       matchesOf: id => {
         const now = this.now(), out: RelayMatch[] = [];
